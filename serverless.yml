@@ -1,0 +1,22 @@
+service: app-html-to-xpaths
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  region: us-east-1
+  role: arn:aws:iam::649854575814:role/yalk-backend-role
+
+functions:
+  publish:
+    handler: handler.toXpaths
+    timeout: 10
+    events:
+      - http:
+          path: xpaths
+          method: get
+          cors: true
+          integration: lambda-proxy
+          request:
+            parameters:
+              querystrings:
+                url: true
