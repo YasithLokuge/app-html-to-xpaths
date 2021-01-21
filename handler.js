@@ -1,46 +1,78 @@
 'use strict';
 const chromium = require('chrome-aws-lambda');
+const request = require('request');
 
 module.exports.toXpaths = async (event, context, callback) => {
-    const url = event.queryStringParameters.url;
     let statusCode = 200;
     let result = "";
+    const data = JSON.parse(event.body);
+    const url = data.url;
+    const token = data.token;
     console.log(url);
-    if(validURL(url)) {
-        const browser = await chromium.puppeteer.launch({
-                args: chromium.args,
-                defaultViewport: chromium.defaultViewport,
-                executablePath: await chromium.executablePath,
-            headless: chromium.headless,
-            ignoreHTTPSErrors: true,
-        });
-
-            const page = await browser.newPage();
-            await page.goto(url);
-
-            await page.addScriptTag({ path :"html-to-xpaths.js"});
-            const jsHandle = await page.evaluateHandle(() => {
-                return htmlElementToXpaths(document.documentElement);
-        });
-
-            result = await page.evaluate(e => e, jsHandle);
-            await browser.close();
-    } else {
-        statusCode = 400;
-        result = "Invalid Url";
-    }
-
-
-    var response = {
-        "statusCode": statusCode,
-        "headers": {
-            'Access-Control-Allow-Origin': 'https://yasithlokuge.github.io',
-            'Access-Control-Allow-Credentials': true
-        },
-        "body": JSON.stringify(result),
-        "isBase64Encoded": false
+    const reCaptchaUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${process.env.RECAPTCHA_SECRET}&response=${token}`;
+    console.log(reCaptchaUrl);
+    console.log(process.env.ORIGIN);
+    const options = {
+        'method': 'GET',
+        'url': reCaptchaUrl,
+        'headers': {}
     };
-    callback(null, response);
+
+    return await new Promise((resolve, reject) => {
+
+        request(options, async function (error, response) {
+            if (error) throw new Error(error);
+            console.log(response.body);
+            const gResponse = JSON.parse(response.body);
+            console.log(gResponse.success);
+            if (gResponse.success) {
+                if (validURL(url) && token) {
+                    console.log("valid url and token");
+                    const browser = await chromium.puppeteer.launch({
+                        args: chromium.args,
+                        defaultViewport: chromium.defaultViewport,
+                        executablePath: await chromium.executablePath,
+                        headless: chromium.headless,
+                        ignoreHTTPSErrors: true,
+                    });
+
+                    const page = await browser.newPage();
+                    await page.goto(url);
+
+                    await page.addScriptTag({path: "html-to-xpaths.js"});
+                    const jsHandle = await page.evaluateHandle(() => {
+                        return htmlElementToXpaths(document.documentElement);
+                    });
+
+                    result = await page.evaluate(e => e, jsHandle);
+                    await browser.close();
+
+                } else {
+                    console.log("invalid url and token");
+                    statusCode = 400;
+                    result = "Invalid request";
+                }
+            } else {
+                console.log("Verification failed");
+                statusCode = 400;
+                result = "Verification failed";
+            }
+
+            resolve({
+                statusCode: statusCode,
+                headers: {
+                    'Access-Control-Allow-Origin': process.env.ORIGIN,
+                    'Access-Control-Allow-Credentials': true
+                },
+                body: JSON.stringify(result),
+                isBase64Encoded: false
+            });
+
+            //callback(null, callbackResponse);
+
+        });
+
+    });
 };
 
 function validURL(str) {
